@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <meta charset="UTF-8" />
+  <title> New Document </title>
+  <meta name="Generator" content="EditPlus">
+
+  <meta name="Author" content="">
+  <meta name="Keywords" content="">
+  <meta name="Description" content="">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <link rel="stylesheet" href="css/mobiscroll-2.0.custom.min.css" />
+  <link href='http://fonts.googleapis.com/css?family=Oxygen' rel='stylesheet' type='text/css'>
+  <link href='http://fonts.googleapis.com/css?family=Alex+Brush' rel='stylesheet' type='text/css'>
+  <link rel="stylesheet" href="css/warpclock.css" />
+  <script type="text/javascript" src="http://cdnjs.cloudflare.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
+  <script type="text/javascript" src="js/modernizr.custom.65732.js"></script>
+  <script type="text/javascript" src="js/mobiscroll-2.0.custom.min.js"></script>
+  <script type="text/javascript">
+	(function() { $(function() {
+		var count = 0;
+
+		/* Handler */
+		function Handler(options) {
+			console.log('Handler()', options);
+
+			this.transformPrefix = Modernizr.prefixed('transform');
+			this.touchSupport = Modernizr.touch;
+
+			this.type = options.type;
+			this.el = $(options.src);
+			this.parent = this.el.parent();
+			this.center = options.center;
+			this.active = false;
+			this.touchId = 0;
+
+			this.bindEvents();
+		}
+
+		Handler.prototype = {
+			setCenter: function(center) {
+				this.center = center;
+			},
+
+			bindEvents: function(event) {
+				if (this.touchSupport) {
+					this.el.bind('touchstart', jQuery.proxy(this.onStart, this));
+					this.el.bind('touchmove', jQuery.proxy(this.onMove, this));
+					this.el.bind('touchend', jQuery.proxy(this.onEnd, this));
+				} else {
+					this.el.bind('mousedown', jQuery.proxy(this.onStart, this));
+					$(window).bind('mouseup', jQuery.proxy(this.onEnd, this));					
+				}
+			},
+
+			onStart: function(event) {
+				if (this.touchSupport)
+					event.preventDefault();
+				else
+					$(window).bind('mousemove', jQuery.proxy(this.onMove, this));
+
+				this.active = true;
+				this.touchId = this.touchSupport ? event.originalEvent.changedTouches[0].identifier : 0;
+				this.parent.removeClass('smooth');
+
+				$(window).trigger('start.'+this.type, event.originalEvent);
+
+				return false;
+			},
+
+			onMove: function(event) {
+				if (!this.active)
+					return false;
+
+				if (this.touchSupport)
+					event.preventDefault();
+
+				var touches = this.touchSupport ? event.originalEvent.changedTouches : [event.originalEvent];
+
+				for (var i = 0; i < touches.length; i++) {
+					if (!this.touchSupport || touches[i].identifier === this.touchId) {
+						var pos = touches[i],
+							angle = Trigo.getSinusAngle(this.center, {x: pos.pageX, y: pos.pageY});
+						
+						this.setCSSAngle(angle);
+
+						break;
+					}
+				}
+			},
+
+			onEnd: function(event) {
+				if (!this.active)
+					return;
+
+				this.active = false;
+				this.parent.addClass('smooth');
+
+				var pos = this.touchSupport ? event.originalEvent.changedTouches[0] : event.originalEvent,
+					angle = Trigo.getSinusAngle(this.center, {x: pos.pageX, y: pos.pageY}),
+					roundedAngle = Trigo.getNearestSinusAngleFrom(angle);
+
+				this.setCSSAngle(roundedAngle);
+
+				if (!this.touchSupport)
+					$(window).unbind('mousemove');
+
+				$(window).trigger('end.'+this.type, Trigo.getTimeFromAngle(roundedAngle, this.type));
+			},
+
+			setTime: function(time, noSnap) {
+				this.time = time;
+				console.log('setTime', time, Trigo.getAngleFromTime(time));
+				this.setCSSAngle(Trigo.getAngleFromTime(time));
+			},
+
+			setCSSAngle: function(rad) {
+				this.parent.css(this.transformPrefix, "rotate(" + rad + "rad)");				
+			}
+		};
+
+		/* Clock */
+		function Clock(src) {
+			this.setup(src);
+			this.bindEvents();
+		}
+
+		Clock.prototype = {
+			setup: function(options) {
+				this.minutes = options.minutes || 15;
+				this.hours = options.hours || 4;
+				this.clock = $(options.el);
+				this.clockCenter = this.selectedHandler = null;
+				this.setCenterPos();
+				this.hourHandler = new Handler({
+					src: $('.hours .handler', $(options.el)),
+					type: 'hours',
+					center: this.clockCenter
+				});
+				this.transformPrefix = Modernizr.prefixed('transform');
+				console.log('prefix', this.transformPrefix);
+
+				this.minuteHandler = new Handler({
+					src: $('.minutes .handler', $(options.el)),
+					type: 'minutes',
+					center: this.clockCenter
+				});
+
+				var width = $(options.el).width(),
+					angle = 0;
+
+				// TODO: do not do so many DOM manipulations!
+				// TODO: play with some template lib (eg. moustache)
+				for (var i = 0, j = 3; i < 12; i++) {
+					var num = (j++%12) || 12;
+					$('<div class="container"><div class="tag"></div><span>' + num + '</span></div>').css(this.transformPrefix, "rotate("+angle+"deg)").appendTo(options.el);
+
+					angle+=30;
+				}
+
+				this.onWindowResize();
+				this.moveArrows();
+				$('#picker').scroller('setValue', [this.hours, this.minutes, 'AM'], true, .2);
+			},
+			
+			bindEvents: function() {
+				$(window).bind('move.minutes end.minutes', jQuery.proxy(this.onMinutesChange, this));
+				$(window).bind('move.hours end.hours', jQuery.proxy(this.onHoursChange, this));
+
+				$(document).bind('scrollstop', function(e){
+					e.stopPropagation();
+					e.stopImmediatePropagation();    
+					scrollInProgress = false;    
+				});
+				$(document).bind('scrollstart', function(e){
+					e.stopPropagation();
+					e.stopImmediatePropagation();    
+					scrollInProgress = true;    
+				});
+
+				$(window).resize(jQuery.proxy(this.onWindowResize, this));
+			},
+
+			moveArrows: function() {
+				Console.log('Clock::moveArrows(', this.hours, this.minutes);
+				this.hourHandler.setTime(this.hours);
+				this.minuteHandler.setTime(this.minutes/5);
+			},
+
+			setCenterPos: function() {
+				this.clockCenter = {
+					x: this.clock.offset().left + (this.clock.width()/2),
+					y: this.clock.offset().top + (this.clock.height()/2)
+				};
+			},
+
+			onWindowResize: function(event) {
+				this.setCenterPos();
+				this.minuteHandler.setCenter(this.clockCenter);
+				this.hourHandler.setCenter(this.clockCenter);
+			},
+
+			onHoursChange: function(event, hours) {
+				console.log('onHoursChange', event, hours);
+				this.hours = hours;
+				this.setWidgetTime();
+			},
+
+			onMinutesChange: function(event, minutes) {
+				console.log('onMinutesChange', event, minutes);
+				this.minutes = minutes;
+				this.setWidgetTime();
+			},
+
+			setWidgetTime: function() {
+				console.log('need to set Widget with', this.hours, this.minutes);
+				$('#picker').scroller('setValue', [this.hours, this.minutes, 'AM'], true, .2);
+			}
+		};
+
+		/* Utils */
+		if (navigator.userAgent.match(/Android|iOS/)) {
+			window.Console = {
+				log: function() {
+					var str = '';
+					for (var i = 0; i < arguments.length; i++) {
+						str += arguments[i] + ' ';
+					}
+					$('.console p').prepend(str + '<br />');
+				}
+			}
+
+			$('.console .close').click(function() { $(this).parent().find('p').empty(); });
+		} else
+			window.Console = window.console;
+
+		/* Trigo */
+		var Trigo = {
+			getSinusAngle: function(point1, point2) {
+				var alpha = h = 0.0;
+
+				if (point2.x < point1.x) {
+					h = Math.sqrt((point1.x - point2.x)*(point1.x - point2.x) + (point1.y - point2.y)*(point1.y - point2.y)),
+					alpha = Math.PI - Math.asin((point1.y - point2.y)/h);
+				} else {
+					h = Math.sqrt((point2.x - point1.x)*(point2.x - point1.x) + (point1.y - point2.y)*(point1.y - point2.y)),
+					alpha = Math.asin((point1.y - point2.y)/h);
+				}
+				
+				if (point2.y < point1.y)
+					return "-"+alpha;
+				else
+					return "-"+(2*Math.PI + alpha);
+			},
+
+			getNearestSinusAngleFrom: function(angle, idx) {
+				angle = Math.abs(angle % 6);
+				var dif = 10,
+					nearestIndex = -1,
+					testAngle = 0,
+					temp = -1;
+
+				for (var i = 0; i < this.lookup.length; i++) {
+					testAngle = this.lookup[i],
+					temp = Math.abs(angle - testAngle);
+
+					if (temp < dif) {
+						nearestIndex = i;
+						dif = temp;
+					}
+				}
+
+				if ((angle > Math.PI) && (angle < (3*Math.PI)/2))
+					nearestIndex += 1;
+
+				Console.log(angle, '=>', this.lookup[nearestIndex], '(idx=' + nearestIndex + ')', 'aig => ', (nearestIndex + 3 % 12));
+
+				return (idx !== undefined) ? nearestIndex : "-"+this.lookup[nearestIndex];
+			},
+
+			getAngleFromTime: function(time) {
+				return -this.lookup[this.angles[time]];
+			},
+
+			getTimeFromAngle: function(angle, type) {
+				angle = Math.abs(angle);
+				for (var i = 0; i < this.lookup.length; i++) {
+					if (angle == this.lookup[i]) {
+						return (type == 'minutes') ? (5*this.times[i])%60 : this.times[i];
+					}
+				}
+
+				return -99;
+			},
+
+			lookup: [
+				0,				// 360
+				(11*Math.PI)/6,	// 330
+				(5*Math.PI)/3,	// 300
+				(3*Math.PI)/2,	// 270
+				(4*Math.PI)/3,	// 240
+				(7*Math.PI)/6,	// 210
+				Math.PI,		// 180
+				(5*Math.PI)/6,	// 150
+				(2*Math.PI)/3,	// 120
+				(Math.PI)/2,	// 90
+				(Math.PI)/3,	// 60
+				(Math.PI)/6		// 30
+			],
+
+			angles: [ 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8 ],
+
+			times: [ 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2 ]
+		};
+		console.log(Trigo.lookup);
+
+		/* /Trigo */
+
+		$('#picker').scroller({
+			preset: 'time',
+			display: 'inline',
+			theme: 'android-ics',
+			onChange:  function(val, inst) {
+				console.log('sel', val, inst);
+			}
+		}).scroller('show');
+
+		var myClock = new Clock({
+			el: '.clock',
+			minutes: 15,
+			hours: 5
+		});
+	})})();
+  </script>
+ </head>
+
+ <body>
+  <div class="console">
+	<p></p>
+	<div class="close">X</div>
+  </div>
+  <div class="picker" style="margin-top:100px;float:left;"><input type="text" name="picker" id="picker" value="" /></div>
+  <div class="clock" style="float:left;">
+	<div class="center"></div>
+	<div class="minutes">
+		<div class="handler"><span>§</span></div>
+	</div>
+	<div class="hours">
+		<div class="handler"><span>§</span></div>	
+	</div>
+  </div>
+ </body>
+</html>
